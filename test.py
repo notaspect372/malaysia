@@ -200,7 +200,7 @@ def scrape_property_details(driver, url):
 
 def save_to_excel(all_data, base_url, start_page, end_page):
     """
-    Saves the scraped data into an Excel file with a valid Windows filename.
+    Saves the scraped data into an Excel file with a valid filename.
     The file is saved in the "output" folder for GitHub Actions.
     """
     df = pd.DataFrame(all_data)
@@ -272,14 +272,14 @@ def scrape_all_property_details(driver, property_urls):
 def main():
     isHeadless = os.getenv('HEADLESS', 'false').lower() == 'true'
     
-    # Select the browser path based on OS or environment variable
+    # Select the browser path from the env variable or OS defaults.
     if os.getenv('BROWSER_PATH'):
         browser_path = os.getenv('BROWSER_PATH')
     else:
         if sys.platform.startswith('win'):
             browser_path = r"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
         elif sys.platform.startswith('linux'):
-            browser_path = "/usr/bin/chromium-browser"  # Adjust if needed
+            browser_path = "/usr/bin/chromium-browser"
         else:
             logging.error("Unsupported OS.")
             return
@@ -288,17 +288,22 @@ def main():
         logging.error(f"Browser executable not found at: {browser_path}")
         return
 
+    # Start virtual display if running in headless mode.
     if isHeadless:
         from pyvirtualdisplay import Display
         display = Display(visible=0, size=(1920, 1080))
         display.start()
 
+    # Updated arguments to include remote debugging, headless, and no-sandbox options.
     arguments = [
         "--no-first-run",
         "--force-color-profile=srgb",
         "--metrics-recording-only",
         "--disable-gpu",
         "--accept-lang=en-US",
+        "--remote-debugging-port=9222",
+        "--headless=new",
+        "--no-sandbox"
     ]
 
     options = get_chromium_options(browser_path, arguments)
