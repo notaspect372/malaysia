@@ -8,6 +8,7 @@ from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from CloudflareBypasser import CloudflareBypasser
 from DrissionPage import ChromiumPage, ChromiumOptions
 from bs4 import BeautifulSoup
+from datetime import datetime  # Added import
 
 # Configure logging
 logging.basicConfig(
@@ -166,7 +167,8 @@ def scrape_property_details(driver, url):
                 soup = BeautifulSoup(driver.html, 'html.parser')
                 modal_items = soup.select("div.property-modal-body-wrapper")
                 for item in modal_items:
-                    value = item.select_one("div.property-modal-body-value")
+                    # Updated selector from div to p, reflecting the structure of your HTML snippet.
+                    value = item.select_one("p.property-modal-body-value")
                     if value:
                         val = value.get_text(strip=True)
                         if val:
@@ -175,7 +177,6 @@ def scrape_property_details(driver, url):
                 raise Exception("Modal content did not load.")
         else:
             raise Exception("See all details button not found.")
-
     except Exception as e:
         print(f"⚠️ Failed to click 'See all details' or scrape modal. Falling back. Reason: {e}")
         table = soup.select_one("table.row")
@@ -187,7 +188,6 @@ def scrape_property_details(driver, url):
                     value_text = value_elem.get_text(strip=True)
                     if value_text:
                         data['characteristics'].append(value_text)
-
 
     # Breadcrumbs
     breadcrumb_items = soup.select("nav[aria-label='breadcrumb'] li")
@@ -220,17 +220,29 @@ def scrape_property_details(driver, url):
     print(data)
     return data
 
-
-
-def save_to_excel(all_data, base_url):
+def save_to_excel(all_data, base_url, start_page, end_page):
     """
-    Saves the scraped data into an Excel file.
+    Saves the scraped data into an Excel file with a valid Windows filename.
+    The file is saved in the "output" folder for GitHub Actions.
     """
     df = pd.DataFrame(all_data)
-    # Create a valid filename from the base_url by replacing non-word characters
-    filename = re.sub(r'\W+', '_', base_url) + ".xlsx"
-    df.to_excel(filename, index=False)
-    logging.info(f"Data saved to {filename}")
+    now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Sanitize filename: allow only alphanumerics, underscores, hyphens
+    filename_base = re.sub(r'[^\w\-]', '_', base_url)
+    if len(filename_base) > 100:
+        filename_base = filename_base[:100]
+
+    filename = f"{filename_base}_pages_{start_page}_{end_page}_{now_str}.xlsx"
+
+    # Ensure the "output" directory exists
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    filepath = os.path.join(output_dir, filename)
+    df.to_excel(filepath, index=False)
+    logging.info(f"Data saved to {filepath}")
 
 def build_page_url(base_url, page):
     """
@@ -323,13 +335,8 @@ def main():
     driver = ChromiumPage(addr_or_opts=options)
 
     try:
-        # Users can simply enter their base URLs in this array.
-        # For a custom URL pattern with page numbers in the path, either include a "{page}" placeholder
-        # or leave the base URL as-is. For example, PropertyGuru uses the pattern:
-        #   Page 1: https://www.propertyguru.com.my/property-for-sale?...
-        #   Page 2: https://www.propertyguru.com.my/property-for-sale/2?...
         base_urls = [
-            "https://www.propertyguru.com.my/property-for-sale?listingType=sale&isCommercial=false&propertyTypeGroup=L&propertyTypeCode=RLAND&search=true&locale=en"
+            "https://www.propertyguru.com.my/property-for-sale?listingType=sale&isCommercial=false&maxPrice=300000&propertyTypeGroup=N&propertyTypeCode=APT&propertyTypeCode=CONDO&propertyTypeCode_DUPLX&propertyTypeCode=FLAT&propertyTypeCode=PENT&propertyTypeCode=SRES&propertyTypeCode=STDIO&propertyTypeCode=TOWNC&search=true&locale=en"
         ]
         # Adjust start_page and end_page as needed
         start_page = 1
@@ -344,7 +351,8 @@ def main():
             
             logging.info("Starting to scrape property details for collected URLs.")
             all_data = scrape_all_property_details(driver, property_urls)
-            save_to_excel(all_data, base_url)
+            # Pass start_page and end_page to save_to_excel for filename generation and saving in the "output" folder
+            save_to_excel(all_data, base_url, start_page, end_page)
     except Exception as e:
         logging.error(f"An error occurred: {e}")
     finally:
