@@ -1,4 +1,4 @@
-name: Run test.py and save Excel
+name: Run test.py and Save Excel Artifact
 
 on:
   push:
@@ -9,27 +9,28 @@ on:
 jobs:
   run-test-script:
     runs-on: ubuntu-latest
-
+    env:
+      HEADLESS: "true"
+      BROWSER_PATH: "/usr/bin/chromium-browser"  # Adjust if necessary
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r server_requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Run test.py
-      run: python test.py
+      - name: Run test.py
+        run: python test.py
 
-    - name: Upload Excel file as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: scraped-excel-output
-        path: |
-          *.xlsx  # <-- adjust this if your Excel file has a specific name or path
+      - name: Upload Excel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: excel-output
+          path: output/*.xlsx
