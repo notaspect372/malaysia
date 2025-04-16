@@ -53,22 +53,40 @@ def get_lat_long_from_google_maps(driver, address):
 def handle_cloudflare(driver):
     """
     Checks for and bypasses Cloudflare challenges.
+
+    The function now increases wait times and attempts to bypass the challenge.
+    It also logs each attempt.
     """
     logging.info("Checking for Cloudflare CAPTCHA or challenges.")
-    try:
-        if "Just a moment" in driver.html or 'cf-browser-verification' in driver.html:
-            logging.info("Cloudflare protection detected. Attempting to bypass.")
+    
+    # If no verification indicator text is found, assume it is already cleared.
+    if "Just a moment" not in driver.html and "cf-browser-verification" not in driver.html:
+        logging.info("No Cloudflare challenge detected.")
+        return
+
+    max_attempts = 60  # Increase the number of attempts if needed.
+    for attempt in range(1, max_attempts + 1):
+        logging.info(f"Attempt {attempt}: Verification page detected. Trying to bypass...")
+        # Wait longer before each attempt (adjust the sleep time as needed)
+        time.sleep(3)
+        try:
             cf_bypasser = CloudflareBypasser(driver)
-            cf_bypasser.bypass()
-            logging.info("Cloudflare bypassed.")
-    except Exception as e:
-        logging.error(f"Error while checking or bypassing Cloudflare: {e}")
+            cf_bypasser.bypass()  # Attempt to click the button
+            logging.info("Verification bypass attempted.")
+        except Exception as e:
+            logging.error(f"Error clicking verification button on attempt {attempt}: {e}")
+        
+        # Check if the verification has been cleared
+        if "Just a moment" not in driver.html and "cf-browser-verification" not in driver.html:
+            logging.info("Cloudflare verification passed.")
+            return
+    else:
+        logging.error("Exceeded maximum bypass attempts. Verification could not be bypassed.")
 
 def scrape_property_urls(driver, url):
     """
-    Visit a listing page URL and extract property detail page URLs.
-    This function now checks both the standard listing card format and the alternative
-    gallery group format.
+    Visits a listing page URL and extracts property detail page URLs.
+    Checks both standard listing card and gallery group formats.
     """
     driver.get(url)
     handle_cloudflare(driver)
@@ -76,7 +94,6 @@ def scrape_property_urls(driver, url):
     soup = BeautifulSoup(driver.html, 'html.parser')
     urls = []
     
-    # Look for the listing cards using the provided data-automation-id
     listing_cards = soup.select("div[data-automation-id='regular-listing-card']")
     for card in listing_cards:
         a_tag = card.select_one("a.listing-card-link")
@@ -85,7 +102,6 @@ def scrape_property_urls(driver, url):
             if href and href not in urls:
                 urls.append(href)
     
-    # Look for alternative property cards in the gallery group format
     gallery_cards = soup.select("div.gallery-group[da-id='lc-gallery-div']")
     for card in gallery_cards:
         a_tag = card.select_one("a")
@@ -97,7 +113,7 @@ def scrape_property_urls(driver, url):
 
 def scrape_property_details(driver, url):
     """
-    Visit a property detail page and scrape required fields.
+    Visits a property detail page and scrapes required fields.
     """
     driver.get(url)
     handle_cloudflare(driver)
@@ -105,10 +121,10 @@ def scrape_property_details(driver, url):
     soup = BeautifulSoup(driver.html, 'html.parser')
     data = {}
     data['URL'] = url
-    # Property name
+
     name_elem = soup.select_one("h1.title[data-automation-id='overview-property-title-txt']")
     data['name'] = name_elem.get_text(strip=True) if name_elem else None
-    # Description
+
     desc_elem = soup.select_one("div.description-block-root div.description.trimmed")
     if desc_elem:
         data['description'] = desc_elem.get_text(separator="\n", strip=True)
@@ -120,29 +136,29 @@ def scrape_property_details(driver, url):
             data['description'] = alt_desc_elem.get_text(separator="\n", strip=True)
         else:
             data['description'] = None
-    # Address
+
     address_elem = soup.select_one("span.full-address__address")
     data['address'] = address_elem.get_text(strip=True) if address_elem else None
-    # Price
+
     price_elem = soup.select_one("h2.amount[data-automation-id='overview-price-txt']")
     data['price'] = price_elem.get_text(strip=True) if price_elem else None
-    # Amenities
+
     data['amenities'] = []
     amenity_elems = soup.select("div.property-amenities__row-item p.property-amenities__row-item__value")
     for amenity in amenity_elems:
         text = amenity.get_text(strip=True)
         if text:
             data['amenities'].append(text)
-    # Characteristics (with modal click)
+
     data['characteristics'] = []
     try:
         see_more_btn = driver.ele('css:button.meta-table__button')
         if see_more_btn:
             see_more_btn.click()
-            time.sleep(2)  # Allow modal to render
+            time.sleep(2)
             modal_loaded = False
             for _ in range(10):
-                if 'property-modal-body-wrapper' in driver.html:
+                if "property-modal-body-wrapper" in driver.html:
                     modal_loaded = True
                     break
                 time.sleep(0.5)
@@ -160,7 +176,7 @@ def scrape_property_details(driver, url):
         else:
             raise Exception("See all details button not found.")
     except Exception as e:
-        print(f"⚠️ Failed to click 'See all details' or scrape modal. Falling back. Reason: {e}")
+        logging.error(f"⚠️ Failed to click 'See all details' or scrape modal: {e}")
         table = soup.select_one("table.row")
         if table:
             cells = table.select("td.meta-table__item-wrapper")
@@ -170,11 +186,11 @@ def scrape_property_details(driver, url):
                     value_text = value_elem.get_text(strip=True)
                     if value_text:
                         data['characteristics'].append(value_text)
-    # Breadcrumbs
+
     breadcrumb_items = soup.select("nav[aria-label='breadcrumb'] li")
     data['property_type'] = breadcrumb_items[1].get_text(strip=True) if len(breadcrumb_items) >= 2 else None
     data['transaction_type'] = breadcrumb_items[-1].get_text(strip=True) if breadcrumb_items else None
-    # Features
+
     features_section = soup.find("div", {"data-automation-id": "overview-property-meta-data-section"})
     data['features'] = {}
     if features_section:
@@ -187,7 +203,7 @@ def scrape_property_details(driver, url):
                 data['features'][feature_type] = feature_value
     else:
         data['features'] = None
-    # Lat/Long
+
     if data.get('address'):
         lat, lon = get_lat_long_from_google_maps(driver, data['address'])
         data['latitude'] = lat
@@ -195,13 +211,14 @@ def scrape_property_details(driver, url):
     else:
         data['latitude'] = None
         data['longitude'] = None
-    print(data)
+
+    logging.info(data)
     return data
 
 def save_to_excel(all_data, base_url, start_page, end_page):
     """
-    Saves the scraped data into an Excel file with a valid filename.
-    The file is saved in the "output" folder for GitHub Actions.
+    Saves the scraped data into an Excel file.
+    The file is saved in the "output" folder (for GitHub Actions artifact collection).
     """
     df = pd.DataFrame(all_data)
     now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -229,15 +246,9 @@ def build_page_url(base_url, page):
     path_segments = path_stripped.split('/')
     
     if path_segments and path_segments[-1].isdigit():
-        if page == 1:
-            new_path = '/'.join(path_segments[:-1])
-        else:
-            new_path = '/'.join(path_segments[:-1] + [str(page)])
+        new_path = '/'.join(path_segments[:-1]) if page == 1 else '/'.join(path_segments[:-1] + [str(page)])
     else:
-        if page == 1:
-            new_path = path_stripped
-        else:
-            new_path = path_stripped + '/' + str(page)
+        new_path = path_stripped if page == 1 else path_stripped + '/' + str(page)
     
     new_url = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment))
     return new_url
@@ -272,7 +283,7 @@ def scrape_all_property_details(driver, property_urls):
 def main():
     isHeadless = os.getenv('HEADLESS', 'false').lower() == 'true'
     
-    # Select the browser path from the env variable or OS defaults.
+    # Determine browser path from environment or defaults based on OS.
     if os.getenv('BROWSER_PATH'):
         browser_path = os.getenv('BROWSER_PATH')
     else:
@@ -288,13 +299,13 @@ def main():
         logging.error(f"Browser executable not found at: {browser_path}")
         return
 
-    # Start virtual display if running in headless mode.
+    # Start virtual display for headless systems if required.
     if isHeadless:
         from pyvirtualdisplay import Display
         display = Display(visible=0, size=(1920, 1080))
         display.start()
 
-    # Updated arguments to include remote debugging, headless, and no-sandbox options.
+    # Define arguments with additional flags to help bypass detection.
     arguments = [
         "--no-first-run",
         "--force-color-profile=srgb",
@@ -303,9 +314,11 @@ def main():
         "--accept-lang=en-US",
         "--remote-debugging-port=9222",
         "--headless=new",
-        "--no-sandbox"
+        "--no-sandbox",
+        "--disable-blink-features=AutomationControlled",
+        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36'
     ]
-
+    
     options = get_chromium_options(browser_path, arguments)
     driver = ChromiumPage(addr_or_opts=options)
 
@@ -314,7 +327,7 @@ def main():
             "https://www.propertyguru.com.my/property-for-sale?listingType=sale&isCommercial=false&maxPrice=300000&propertyTypeGroup=N&propertyTypeCode=APT&propertyTypeCode=CONDO&propertyTypeCode_DUPLX&propertyTypeCode=FLAT&propertyTypeCode=PENT&propertyTypeCode=SRES&propertyTypeCode=STDIO&propertyTypeCode=TOWNC&search=true&locale=en"
         ]
         start_page = 1
-        end_page = 1
+        end_page = 1  # Adjust pages as necessary
         for base_url in base_urls:
             logging.info(f"Starting to scrape listing URLs from: {base_url}")
             property_urls = collect_all_property_urls(driver, base_url, start_page, end_page)
